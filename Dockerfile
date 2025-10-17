@@ -41,4 +41,4 @@ ENV APP_ENV=production \
 EXPOSE 8080
 
 # Use Laravel's router (server.php) with PHP built-in server
-CMD ["php", "-S", "0.0.0.0:8080", "-t", "public", "server.php"]
+CMD ["php", "-S", "0.0.0.0:8080", "-t", "public", "public/index.php"]
