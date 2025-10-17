@@ -1,37 +1,44 @@
-FROM node:20-alpine AS assets
+# frontend assets
+FROM node:20 AS assets
 WORKDIR /app
-COPY package*.json vite.config.js ./
-COPY resources ./resources
-RUN npm ci && npm run build
+COPY package.json package-lock.json ./
+RUN npm ci
+COPY resources resources
+COPY vite.config.js ./
+RUN npm run build
 
-FROM composer:2.7 AS vendor
+# Install PHP deps
+FROM composer:2 AS vendor
 WORKDIR /app
+ENV COMPOSER_ALLOW_SUPERUSER=1
 COPY composer.json composer.lock ./
-RUN composer install --no-dev --prefer-dist --no-progress --no-interaction
+RUN composer install --no-dev --prefer-dist --no-interaction --no-scripts
+
+# Copy the app and finish install
 COPY . .
-RUN composer install --no-dev --prefer-dist --no-progress --no-interaction
-
-FROM dunglas/frankenphp:1.2-php8.3
-
-RUN install-php-extensions zip pdo_sqlite
-
-WORKDIR /app
-
-COPY . .
-COPY --from=vendor /app/vendor /app/vendor
+# bring built assets from the previous stage
 COPY --from=assets /app/public/build /app/public/build
 
-ENV APP_ENV=production
-ENV APP_DEBUG=false
+# composer
+RUN composer install --no-dev --prefer-dist --no-interaction
 
-ENV SERVER_NAME=":8080"
-ENV FRANKENPHP_CONFIG="worker /app/public/index.php"
+# Runtime image
+FROM php:8.3-cli
+WORKDIR /app
 
-RUN cp -n .env.example .env \
- && php artisan key:generate \
- && php artisan optimize \
- && chown -R www-data:www-data storage bootstrap/cache
+# optional extensions
+RUN curl -sSLf https://github.com/mlocati/docker-php-extension-installer/releases/latest/download/install-php-extensions -o /usr/local/bin/install-php-extensions \
+    && chmod +x /usr/local/bin/install-php-extensions \
+    && install-php-extensions zip pdo_sqlite
 
-RUN chmod -R ug+rw storage bootstrap/cache
+# copy everything from the vendor stage
+COPY --from=vendor /app /app
+
+# production defaults
+ENV APP_ENV=production \
+    APP_DEBUG=0
 
 EXPOSE 8080
+
+# Use Laravel's router (server.php) with PHP built-in server
+CMD ["php", "-S", "0.0.0.0:8080", "-t", "public", "server.php"]
